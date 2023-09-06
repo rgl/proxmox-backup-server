@@ -1,0 +1,29 @@
+ENV['VAGRANT_EXPERIMENTAL'] = 'typed_triggers'
+
+require 'open3'
+
+VM_CPU = 4
+VM_MEMORY_GB = 4
+VM_ROOT_DISK_SIZE_GB = 128
+
+Vagrant.configure('2') do |config|
+  config.vm.box = 'proxmox-backup-server-amd64'
+  config.vm.provider :libvirt do |lv, config|
+    lv.memory = VM_MEMORY_GB*1024
+    lv.cpus = VM_CPU
+    lv.cpu_mode = 'host-passthrough'
+    lv.nested = true
+    lv.keymap = 'pt'
+    lv.machine_virtual_size = VM_ROOT_DISK_SIZE_GB
+    config.vm.synced_folder '.', '/vagrant', type: 'nfs', nfs_version: '4.2', nfs_udp: false
+  end
+  ip = '10.10.10.3'
+  config.vm.network :private_network,
+    ip: ip,
+    auto_config: false,
+    libvirt__dhcp_enabled: false,
+    libvirt__forward_mode: 'none'
+  config.vm.provision :shell, path: 'provision.sh', args: ip
+  config.vm.provision :shell, path: 'provision-proxy-certificate.sh', args: ip
+  config.vm.provision :shell, path: 'summary.sh', args: ip
+end
