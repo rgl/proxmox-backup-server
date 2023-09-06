@@ -5,6 +5,11 @@ packer {
       version = "1.0.9"
       source  = "github.com/hashicorp/qemu"
     }
+    # see https://github.com/hashicorp/packer-plugin-proxmox
+    proxmox = {
+      version = "1.1.3"
+      source  = "github.com/hashicorp/proxmox"
+    }
   }
 }
 
@@ -35,6 +40,11 @@ variable "iso_url" {
 variable "iso_checksum" {
   type    = string
   default = "sha256:8974070f90225bbeba78721c685905e8f42f5463b3592f181689f76d1a579154"
+}
+
+variable "proxmox_node" {
+  type    = string
+  default = env("PROXMOX_NODE")
 }
 
 variable "apt_cache_host" {
@@ -140,9 +150,82 @@ source "qemu" "proxmox-backup-server-amd64" {
   shutdown_command = "poweroff"
 }
 
+source "proxmox-iso" "proxmox-backup-server-amd64" {
+  template_name            = "template-proxmox-backup-server"
+  template_description     = "See https://github.com/rgl/proxmox-backup-server"
+  insecure_skip_tls_verify = true
+  node                     = var.proxmox_node
+  machine                  = "q35"
+  bios                     = "ovmf"
+  efi_config {
+    efi_storage_pool = "local-lvm"
+  }
+  cpu_type = "host"
+  cores    = var.cpus
+  memory   = var.memory
+  vga {
+    type   = "qxl"
+    memory = 16
+  }
+  network_adapters {
+    model  = "virtio"
+    bridge = "vmbr0"
+  }
+  scsi_controller = "virtio-scsi-pci"
+  disks {
+    type         = "scsi"
+    disk_size    = "${var.disk_size}M"
+    storage_pool = "local-lvm"
+  }
+  iso_storage_pool = "local"
+  iso_url          = var.iso_url
+  iso_checksum     = var.iso_checksum
+  unmount_iso      = true
+  os               = "l26"
+  ssh_username     = "root"
+  ssh_password     = "vagrant"
+  ssh_timeout      = "60m"
+  http_directory   = "."
+  boot_wait        = "30s"
+  boot_command = [
+    "<enter>",
+    "<wait3m>",
+    "<enter><wait>",
+    "<enter><wait>",
+    "${var.step_country}<tab><wait>",
+    "${var.step_timezone}<tab><wait>",
+    "${var.step_keyboard_layout}<tab><wait>",
+    "<tab><wait>",
+    "<enter><wait5>",
+    "vagrant<tab><wait>",
+    "vagrant<tab><wait>",
+    "${var.step_email}<tab><wait>",
+    "<tab><wait>",
+    "<enter><wait5>",
+    "${var.step_hostname}<tab><wait>",
+    "<tab><wait>",
+    "<tab><wait>",
+    "<tab><wait>",
+    "<tab><wait>",
+    "<tab><wait>",
+    "<enter><wait5>",
+    "<enter><wait5>",
+    "<wait4m>",
+    "root<enter>",
+    "<wait5>",
+    "vagrant<enter>",
+    "<wait5>",
+    "rm -f /etc/apt/sources.list.d/pbs-enterprise.list<enter>",
+    "apt-get update<enter><wait1m>",
+    "apt-get install -y qemu-guest-agent<enter><wait30s>",
+    "systemctl start qemu-guest-agent<enter><wait>",
+  ]
+}
+
 build {
   sources = [
     "source.qemu.proxmox-backup-server-amd64",
+    "source.proxmox-iso.proxmox-backup-server-amd64",
   ]
 
   provisioner "shell" {
@@ -155,6 +238,9 @@ build {
   }
 
   post-processor "vagrant" {
+    only = [
+      "qemu.proxmox-backup-server-amd64",
+    ]
     output               = var.vagrant_box
     vagrantfile_template = "Vagrantfile.template"
   }
